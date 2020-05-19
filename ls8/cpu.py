@@ -7,14 +7,20 @@ class CPU:
 
     def __init__(self):
         """Construct a new CPU."""
-        pass
+
+        self.pc = 0
+        self.reg = [0] * 8
+        self.ram = [0] * 256
+
+    def ram_read(self, mar):
+        return self.ram[mar]
+
+    def ram_write(self, mdr, mar):
+        self.ram[mar] = mdr
 
     def load(self):
-        """Load a program into memory."""
-
-        address = 0
-
         # For now, we've just hardcoded a program:
+        address = 0
 
         program = [
             # From print8.ls8
@@ -62,4 +68,29 @@ class CPU:
 
     def run(self):
         """Run the CPU."""
-        pass
+        HLT = 0b00000001
+        LDI = 0b10000010
+        PRN = 0b01000111
+        running = True
+
+        while running:
+            instruction = self.ram_read(self.pc)
+            reg_a = self.ram_read(self.pc + 1)
+            reg_b = self.ram_read(self.pc + 2)
+            if instruction == HLT:
+                running = False
+                self.pc += 1
+                sys.exit()
+            elif instruction == LDI:
+                self.reg[reg_a] = reg_b
+                self.pc += 3
+            elif instruction == PRN:
+                print(self.reg[reg_a])
+                self.pc += 2
+            # elif instruction == MUL:
+            #     print(self.reg[reg_a] * self.reg[reg_b])
+            #     self.pc += 3
+            else:
+                print(f'this instruction is not valid: {hex(instruction)}')
+                running = False
+                sys.exit()

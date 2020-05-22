@@ -11,6 +11,106 @@ class CPU:
         self.pc = 0
         self.reg = [0] * 8
         self.ram = [0] * 256
+        # register
+        self.ir = 0
+        # last register
+        self.sp = 7
+        # flag register
+        self.fl = 6
+        # op table
+        self.op_table = {
+            0b10000010: self._ldi,
+            0b01000111: self._prn,
+            0b10100010: self._mult,
+            0b00000001: self._hlt,
+            0b01000101: self._push,
+            0b01000110: self._pop,
+            0b01010000: self._call,
+            0b00010001: self._ret,
+            0b10100000: self._add,
+            0b01010110: self._jne,
+            0b01010100: self._jmp,
+            0b01010101: self._jeq,
+            0b10100111: self._cmp
+        }
+
+    def _ldi(self, reg_a, reg_b):
+        self.reg[reg_a] = reg_b
+
+    def _prn(self, reg_a, reg_b):
+        # print
+        print(self.reg[reg_a])
+
+    def _add(self, reg_a, reg_b):
+        # add
+        self.reg[reg_a] = self.reg[reg_a] + self.reg[reg_b]
+
+    def _mult(self, reg_a, reg_b):
+        # multiply
+        self.reg[reg_a] = self.reg[reg_a] * self.reg[reg_b]
+
+    def _hlt(self, reg_a, reg_b):
+        # stop
+        sys.exit()
+
+    def _push(self, reg_a, reg_b):
+        # push value in current register to stack
+        self.reg[self.sp] -= 1
+        self.ram[self.reg[self.sp]] = self.reg[reg_a]
+
+    def _pop(self, reg_a, reg_b):
+        # remove value from top of stack, place in given reg
+        self.reg[reg_a] = self.ram[self.reg[self.sp]]
+        self.reg[self.sp] += 1
+
+    def _call(self, reg_a, reg_b):
+        # address of instruction
+        self.reg[self.sp] -= 1
+        self.ram[self.reg[self.sp]] = self.pc + 2
+        # pc is val in cur reg
+        self.pc = self.reg[reg_a]
+        return True
+
+    def _ret(self, reg_a, reg_b):
+        # remove val from top of stack, place in reg_a
+        self._pop(reg_a, 0)
+        self.pc = self.reg[reg_a]
+        return True
+
+    def _jne(self, reg_a, reg_b):
+        # get flags
+        val = self.reg[self.fl]
+        # if equal flag is 0 jump to reg
+        if val == 2 or val == 4:
+            return self._jmp(reg_a, 0)
+
+    def _jmp(self, reg_a, reg_b):
+        # jump to address
+        self.pc = self.reg[reg_a]
+        return True
+
+    def _jeq(self, reg_a, reg_b):
+        # if equal flag is flipped, jump to reg
+        if self.reg[self.fl] == 1:
+            return self._jmp(reg_a, 0)
+
+    def _cmp(self, reg_a, reg_b):
+        # get values to compare
+        val_a = self.reg[reg_a]
+        val_b = self.reg[reg_b]
+
+        # if equal: flip bit 1
+        if val_a == val_b:
+            # turn bit from 0 to 1
+            self.reg[self.fl] = 1
+
+        # if a is greater than b: flip bit 2
+        elif val_a > val_b:
+            self.reg[self.fl] = 2
+
+        # if a is less than b: flip bit 4
+        else:
+            self.reg[self.fl] = 4
 
     def ram_read(self, mar):
         return self.ram[mar]
@@ -18,24 +118,20 @@ class CPU:
     def ram_write(self, mdr, mar):
         self.ram[mar] = mdr
 
-    def load(self):
+    def load(self, prog):
         # For now, we've just hardcoded a program:
         address = 0
 
-        program = [
-            # From print8.ls8
-            0b10000010, # LDI R0,8
-            0b00000000,
-            0b00001000,
-            0b01000111, # PRN R0
-            0b00000000,
-            0b00000001, # HLT
-        ]
+        with open(prog) as program:
+            for instruction in program:
+                instruction_split = instruction.split('#')
+                instruction_stripped = instruction_split[0].strip()
 
-        for instruction in program:
-            self.ram[address] = instruction
-            address += 1
-
+                if instruction_stripped == '':
+                    continue
+                instruction_num = int(instruction_stripped, 2)
+                self.ram_write(instruction_num, address)
+                address += 1
 
     def alu(self, op, reg_a, reg_b):
         """ALU operations."""
@@ -68,29 +164,64 @@ class CPU:
 
     def run(self):
         """Run the CPU."""
-        HLT = 0b00000001
-        LDI = 0b10000010
-        PRN = 0b01000111
-        running = True
 
-        while running:
-            instruction = self.ram_read(self.pc)
-            reg_a = self.ram_read(self.pc + 1)
-            reg_b = self.ram_read(self.pc + 2)
-            if instruction == HLT:
-                running = False
-                self.pc += 1
-                sys.exit()
-            elif instruction == LDI:
-                self.reg[reg_a] = reg_b
-                self.pc += 3
-            elif instruction == PRN:
-                print(self.reg[reg_a])
-                self.pc += 2
-            # elif instruction == MUL:
-            #     print(self.reg[reg_a] * self.reg[reg_b])
-            #     self.pc += 3
-            else:
-                print(f'this instruction is not valid: {hex(instruction)}')
-                running = False
-                sys.exit()
+        while True:
+            self.ir = self.ram[self.pc]
+            reg_a = self.ram[self.pc + 1]
+            reg_b = self.ram[self.pc + 2]
+
+            jump = self.op_table[self.ir](reg_a, reg_b)
+            if not jump:
+                self.pc += (self.ir >> 6) + 1
+
+        # HLT = 0b00000001
+        # LDI = 0b10000010
+        # PRN = 0b01000111
+        # MUL = 0b10100010
+        # PUSH = 0b01000101
+        # POP = 0b01000110 
+        # running = True
+
+        # while running:
+        #     instruction = self.ram_read(self.pc)
+        #     reg_a = self.ram_read(self.pc + 1)
+        #     reg_b = self.ram_read(self.pc + 2)
+        #     if instruction == HLT:
+        #         running = False
+        #         self.pc += 1
+        #         sys.exit()
+        #     elif instruction == LDI:
+        #         self.reg[reg_a] = reg_b
+        #         self.pc += 3
+        #     elif instruction == PRN:
+        #         print(self.reg[reg_a])
+        #         self.pc += 2
+        #     elif instruction == MUL:
+        #         print(self.reg[reg_a] * self.reg[reg_b])
+        #         self.pc += 3
+        #     elif instruction == PUSH:
+        #         #choose register
+        #         reg = self.ram[self.pc + 1]
+        #         # get value from register
+        #         val = self.reg[reg]
+        #         # decrement address by one
+        #         self.reg[self.sp] -= 1
+        #         # save val from reg into memory
+        #         self.ram[self.reg[self.sp]] = val
+        #         # increment pc by 2
+        #         self.pc += 2
+        #     elif instruction == POP:
+        #         # reg holding sp
+        #         reg = self.ram[self.pc + 1]
+        #         # val from memory
+        #         val = self.ram[self.reg[self.sp]]
+        #         # save val into reg we are at
+        #         self.reg[reg] = val
+        #         # incremet pointer
+        #         self.reg[reg.sp] += 1
+        #         #increment pc by 2
+        #         self.pc += 2
+        #     else:
+        #         print(f'this instruction is not valid: {hex(instruction)}')
+        #         running = False
+        #         sys.exit()
